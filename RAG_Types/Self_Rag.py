@@ -33,10 +33,11 @@ class Agentstste(TypedDict):
     answer: str
     hallucination_response: str
     check_answer_response: str
+    rewrite_count: int
 
 def retrive_docs(state: Agentstste):
     print('Node: Retrieve Docs')
-    retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 30})
+    retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 20})
     docs = retriever.invoke(state["question"])
     state["retrieved_docs"] = "\n\n".join(doc.page_content for doc in docs)
     return state
@@ -61,7 +62,7 @@ def grade(state: Agentstste):
     return state
 
 def grade_condition(state: Agentstste) -> str:
-    return state["grade_response"]
+    return state["grade_response"].strip().lower()
 
 def generate_answer(state: Agentstste):
     print('\n Node: Generate Answer')
@@ -84,12 +85,12 @@ def generate_answer(state: Agentstste):
 def check_hallucination(state: Agentstste):
     print('Node: Check Hallucination')
     prompt = PromptTemplate(
-        template="""You are a DAA professor verifying if the answer is based only on the notes.
+        template="""You are a helpful assistance that checks if there is any hallucination in the answer.
 
         Answer:
         {answer}
 
-        Respond ONLY with "yes" (hallucinated) or "no" (faithful).
+        Respond ONLY with "yes" if there is hallucination or "no" if there is no hallucination.
         """, input_variables=['answer']
     )
     chain = prompt | llm | parser
@@ -98,7 +99,7 @@ def check_hallucination(state: Agentstste):
     return state
 
 def hallucination_condition(state: Agentstste) -> str:
-    return state["hallucination_response"]
+    return state["hallucination_response"].strip().lower()
 
 def chck_answers_question(state: Agentstste):
     print('Node: Check Answer Relevance')
@@ -120,16 +121,19 @@ def chck_answers_question(state: Agentstste):
     return state
 
 def check_answer_condition(state: Agentstste) -> str:
-    return state["check_answer_response"]
+    return state["check_answer_response"].strip().lower()
 
 def rewrite_question(state: Agentstste):
     print('Node: Rewrite Question')
+    state['rewrite_count'] += 1
+    if state['rewrite_count'] > 3:
+        raise Exception("Maximum rewrite attempts reached.")
     prompt = PromptTemplate(
         template="""Rewrite the following DAA question for clarity and better context matching:
 
-Original:
-{question}
-""", input_variables=['question']
+        Original:
+        {question}
+        """, input_variables=['question']
     )
     chain = prompt | llm | parser
     state['question'] = chain.invoke({'question': state['question']})
@@ -163,9 +167,9 @@ graph.add_edge("rewrite_question", "retrive_docs")
 
 # Run
 app = graph.compile()
-initial_state1 = Agentstste(question='string matching')
+initial_state1 = Agentstste(question='dynaminc programing',rewrite_count=0)
 response = app.invoke(initial_state1)
 
 print("\nFinal Question:", response['question'])
-print("\n Retrieved docs:",response['retrieved_docs'])
+# print("\n Retrieved docs:",response['retrieved_docs'])
 print("Final Answer:\n", response['answer'])
